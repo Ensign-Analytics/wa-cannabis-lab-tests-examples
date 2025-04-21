@@ -5,7 +5,7 @@ date: "2025-04-21"
 output: html_document
 ---
 
-```{r setup, include=FALSE}
+```{r setup, include=TRUE, echo=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
 source("install_packages_if_missing.R")
@@ -16,7 +16,7 @@ Packages for this pipeline were silently loaded.
 Now, just load the Data:
 ```{r load-data, cache=TRUE}
 
-lab_data_list <- qs::qread("data/lab_data_list.qs")
+#lab_data_list <- qs::qread("data/lab_data_list.qs")
 
 #glimpse(lab_data_list)
 
