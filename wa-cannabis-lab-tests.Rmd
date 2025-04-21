@@ -1,0 +1,414 @@
+---
+title: "Rolling with the Molecules: Cannabis Chemistry in Motion"
+author: "Franklin Johnson"
+date: "2025-04-21"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+source("install_packages_if_missing.R")
+```
+
+Packages for this pipeline were silently loaded.
+
+Now, just load the Data:
+```{r load-data, cache=TRUE}
+
+lab_data_list <- qs::qread("data/lab_data_list.qs")
+
+#glimpse(lab_data_list)
+
+```
+
+Understanding WSLCB Lab Testing Requirements
+
+We’ll align our modeling around these relationships — ideally by plotting pathways by product, by category, or even over time.
+
+EDA - Top Subcategories by Record Count
+```{r}
+
+lab_data_list %>%
+  count(inventory_type_sub_category, sort = TRUE) %>%
+  slice_head(n = 10) %>%
+  ggplot(aes(x = reorder(inventory_type_sub_category, n), y = n)) +
+  geom_col(fill = "#4E944F") +
+  scale_y_continuous(labels = comma_format()) +
+  coord_flip() +
+  labs(
+    title = "Top 10 Cannabis Product Subcategories (Lab Tests)",
+    x = "Subcategory", y = "Record Count"
+  ) +
+  theme_minimal(base_size = 8)
+
+```
+
+THC/CBD Distribution (Boxplot)
+```{r include=FALSE}
+
+lab_data_list %>%
+  pivot_longer(
+    cols = starts_with("potency_"),
+    names_to = "compound",
+    values_to = "percent"
+  ) %>%
+  mutate(percent = percent / 10) %>%
+  filter(compound %in% c("potency_total_thc_perc_avg", "potency_total_cbd_perc_avg")) %>%
+  ggplot(aes(x = compound, y = percent, fill = compound)) +
+  geom_boxplot(outlier.alpha = 0.1) +
+  scale_y_continuous(labels = scales::percent_format(scale = 1)) +
+  labs(
+    title = "THC vs CBD Concentration (All Products)",
+    x = NULL, y = "Percent (%)"
+  ) +
+  theme_minimal(base_size = 8) +
+  scale_fill_manual(values = c("#E63946", "#457B9D")) +
+  theme(legend.position = "none")
+
+```
+
+Understanding Cannabinoid Biosynthesis Logic
+```{r, include=TRUE, echo=FALSE}
+
+# Table data
+biosynthesis_pathway <- data.frame(
+  '🔁 Pathway Stage' = c("Primary Precursor", "Decarboxylation", "Degradation"),
+  '🧬 Source Compound' = c("CBGA", "THCA, CBDA, CBCA", "Δ9-THC"),
+  '💥 Resulting Product' = c("THCA, CBDA, CBCA", "Δ9-THC, CBD, CBC", "CBN, Δ8-THC"),
+  '⚙️ Conversion Process' = c("Synthase enzymes", "Heat, UV, or time", "Oxidation / Isomerization")
+)
+
+# Styled table
+biosynthesis_pathway %>%
+  janitor::clean_names() %>%
+  rename('Pathway Stage' = x_pathway_stage,
+         'Source Compound' = x_source_compound, 
+         'Resulting Product' = x_resulting_product,
+         'Conversion Process' = x_conversion_process) %>%
+  kable("html", escape = FALSE, caption = "🌿 Cannabinoid Biosynthesis Pathway") %>%
+  kable_styling(
+    bootstrap_options = c("striped", "hover", "condensed", "responsive"),
+    full_width = FALSE,
+    position = "center"
+  ) %>%
+  row_spec(0, bold = TRUE, color = "white", background = "#4CAF50") %>%
+  kableExtra::column_spec(1:4, border_left = TRUE, border_right = TRUE)
+
+```
+
+Pathway Building Logic
+```{r}
+# Group by subcategory or product name to observe average transitions
+biosynthesis_summary <- lab_data_list %>%
+  group_by(inventory_type_sub_category) %>%
+  summarise(
+    cbga = mean(potency_cbga_perc_avg, na.rm = TRUE),
+    thca = mean(potency_thca_perc_avg, na.rm = TRUE),
+    d9thc = mean(potency_d9thc_perc_avg, na.rm = TRUE),
+    d9thca = mean(potency_d9thca_perc_avg, na.rm = TRUE),
+    cbda = mean(potency_cbda_perc_avg, na.rm = TRUE),
+    cbd = mean(potency_cbd_perc_avg, na.rm = TRUE),
+    cbn  = mean(potency_cbn_perc_avg, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+kable(biosynthesis_summary)
+```
+
+Focus pathway to Flower or Concentrate
+```{r, warning=FALSE}
+
+lab_flower_conc <- lab_data_list %>%
+  filter(str_detect(inventory_type_sub_category, regex("flower|concentrate", ignore_case = TRUE)))
+
+precursor_product_summary <- lab_flower_conc %>%
+  # Remove rows where all values are zero
+  filter(across(potency_d9thca_perc_avg) > 0.00) %>%
+  group_by(product_name) %>%
+  summarise(
+    cbga = mean(potency_cbga_perc_avg, na.rm = TRUE),
+    thca = mean(potency_thca_perc_avg, na.rm = TRUE),
+    d9thca = mean(potency_d9thca_perc_avg, na.rm = TRUE),
+    d9thc  = mean(potency_d9thc_perc_avg, na.rm = TRUE),
+    cbn    = mean(potency_cbn_perc_avg, na.rm = TRUE),
+    total_thc = mean(potency_total_thc_perc_avg, na.rm = TRUE),
+    total_cbd = mean(potency_total_cbd_perc_avg, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Sort top 15 most potent products (by total_thc)
+top_potent_products <- precursor_product_summary %>%
+  arrange(desc(total_thc)) %>%
+  slice_head(n = 15)
+
+# Plot THC pathway
+top_potent_products %>%
+  pivot_longer(cbga:cbn, names_to = "compound", values_to = "percent") %>%
+  ggplot(aes(x = compound, y = percent/1000, group = product_name)) +
+  geom_line(color = "#6A994E", alpha = 0.6) +
+  geom_point(color = "#386641") +
+  scale_y_continuous(labels = percent_format()) +
+  facet_wrap(~product_name, scales = "free_y") +
+  labs(
+    title = "Precursor → Product Cannabinoid Profiles",
+    subtitle = "Top 15 Products (Flower/Concentrates)",
+    x = "Compound", y = "Avg % in Product"
+  ) +
+  theme_minimal(base_size = 6.5) +
+  theme(strip.text = element_text(face = "bold"))
+
+```
+
+Since Δ9-THCA is a precursor to Δ9-THC, tracking its levels over time helps us understand product freshness and how far along the decarboxylation process has gone. Think of it as checking your bud’s potential before the heat hits. 
+```{r, include=FALSE}
+
+#Time series decomposition pipeline for Δ9-THCA 
+
+# Step 1: Summarize average d9-THCA by month
+d9thca_trend <- lab_flower_conc %>%
+  group_by(month = floor_date(sale_date_month, "month")) %>%
+  summarise(
+    avg_d9thca = mean(potency_d9thca_perc_avg, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(avg_d9thca)) %>%
+  as_tsibble(index = month) %>%
+  fill_gaps(avg_d9thca = 0)  # Ensures regular time series
+
+# Step 2: Decomposition
+d9thca_decomp <- d9thca_trend %>%
+  model(STL(avg_d9thca ~ trend(window = 7) + season(window = "periodic")))
+
+# Step 3: Extract components
+d9thca_components <- components(d9thca_decomp)
+
+# Step 4: Plot
+autoplot(d9thca_components) +
+  labs(
+    title = "Δ9-THCA Trend Over Time",
+    subtitle = "Watch raw cannabinoid potential evolve in Flower/Concentrates",
+    y = "Average % Δ9-THCA",
+    x = NULL
+  ) +
+  scale_y_continuous(labels = label_percent(scale = 1)) +
+  theme_minimal(base_size = 8)
+
+
+```
+
+This plot captures the cannabis chemistry — THCA is THC before the hit. Heat and time convert this molecule from an inactive form into a psychoactive powerhouse. Tracking THCA gives you a glimpse of raw potential.
+
+Decarboxylation Chemistry: Δ9-THCA → Δ9-THC in Infused Mixes
+```{r}
+
+# Filter for Infused Mixes
+infused_data <- lab_data_list %>%
+  filter(inventory_type_sub_category == "Infused Mixes") %>%
+  mutate(month = floor_date(sale_date_month, "month"))
+
+# Summarise average THCA and THC by month
+infused_trends <- infused_data %>%
+  group_by(month) %>%
+  summarise(
+    avg_thca = mean(potency_d9thca_perc_avg, na.rm = TRUE),
+    avg_thc  = mean(potency_d9thc_perc_avg, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(avg_thca) & !is.na(avg_thc) & !(avg_thca == 0 & avg_thc == 0)) %>%
+  as_tsibble(index = month) %>%
+  fill_gaps(avg_thca = 0, avg_thc = 0)
+
+# Convert to long format for ggplot
+infused_long <- infused_trends %>%
+  pivot_longer(cols = c(avg_thca, avg_thc),
+               names_to = "cannabinoid",
+               values_to = "percentage") %>%
+  mutate(cannabinoid = recode(cannabinoid,
+                              avg_thca = "Δ9-THCA (acid form)",
+                              avg_thc  = "Δ9-THC (active form)"))
+
+# Plot side-by-side
+ggplot(infused_long, aes(x = month, y = percentage, color = cannabinoid)) +
+  geom_line(linewidth = 1) +
+  geom_point(alpha = 0.7) +
+  scale_y_continuous(labels = label_percent(scale = 1)) +
+  labs(
+    title = "From Precursor to Poten️cy",
+    subtitle = "Δ9-THCA → Δ9-THC Over Time in Infused Mixes",
+    x = "Month",
+    y = "Average Percentage",
+    color = "Cannabinoid"
+  ) +
+  theme_minimal(base_size = 10) +
+  theme(legend.position = "top")
+
+```
+
+From Acid to Active: THCA to THC Trends in Infused Mixes (Monthly Averages)
+```{r, echo=FALSE}
+
+thca_thc_ts_clean <- infused_long %>%
+  filter(!('Δ9-THCA (acid form)') == 0 & !('Δ9-THC (active form)') == 0)
+
+#Pivot wider so THCA and THC are columns
+thca_thc_ts_wide <- thca_thc_ts_clean %>%
+  pivot_wider(names_from = cannabinoid, values_from = percentage)
+
+#Filter out rows where BOTH THCA and THC are 0
+thca_thc_filtered <- thca_thc_ts_wide %>%
+  filter(`Δ9-THCA (acid form)` != 0 | `Δ9-THC (active form)` != 0)
+
+#Rename columns for ease of use
+thca_thc_filtered <- thca_thc_filtered %>%
+  rename(
+    avg_thca = `Δ9-THCA (acid form)`,
+    avg_thc  = `Δ9-THC (active form)`
+  )
+
+#Convert back to long format for ggplot (preferred format than thca_thc_filtered)
+thca_thc_long <- thca_thc_filtered %>%
+  pivot_longer(cols = c(avg_thca, avg_thc), names_to = "cannabinoid", values_to = "percentage") %>%
+  as_tsibble(index = month, key = cannabinoid)
+
+thca_thc_smoothed <- thca_thc_long %>%
+  group_by(cannabinoid) %>% 
+  mutate(
+    rolling_pct = slider::slide_dbl(percentage, mean, .before = 2, .after = 2, .complete = TRUE)
+  ) %>%
+  ungroup()
+
+ggplot(thca_thc_smoothed, aes(x = month, y = rolling_pct, color = cannabinoid)) +
+  geom_line(linewidth = 1.1, na.rm = TRUE) +
+  scale_y_continuous(labels = label_percent(scale = 1)) +
+  scale_color_manual(
+    values = c("avg_thca" = "#7F7EFF", "avg_thc" = "#FF7F50"),
+    labels = c("Δ9-THCA (acid form)", "Δ9-THC (active form)")
+  ) +
+  labs(
+    title = "Daily Averages of Δ9-THCA vs. Δ9-THC in Infused Mixes",
+    subtitle = "7-day smoothing. Watch THCA convert to THC as products age.",
+    x = "Date",
+    y = "Average % Potency",
+    color = "Cannabinoid Form",
+    caption = "Source: WSLCB-Approved Lab Results • Processed by YourWeedData.com"
+  ) +
+  theme_minimal(base_size = 8) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold")
+)
+
+```
+
+Why Do THCA and THC Trend Downward Over Time?
+Here’s the story — and it’s got more twist than a joint on a windy day 🌬️💨:
+
+Product shelf life: Over time, cannabis products sitting in labs, warehouses, or shelves may degrade or lose potency, especially THCA converting to other forms or degrading entirely.
+
+Seasonal manufacturing patterns: Early months (e.g., Jan–Apr) likely reflect fresh batches, post-holiday surges, or early-year restocking. Later in the year, you might see smaller or older inventory tested.
+
+Infused Mixes as a category can have lower cannabinoid consistency due to ingredient blends or inconsistent lab homogenization. If more low-THC batches were tested later in the year, average values drop.
+
+Testing or reporting changes: Different labs, changing methods, or shifts in compliance priorities might influence reported averages.
+
+Increased CBD or alternative focus: Some brands shift formulations throughout the year toward less psychoactive content — especially in the edible space.
+
+You're watching decarboxylation in action — and market dynamics layered on top. The trend downward from ~47% THCA to ~24% by December is real, and THC follows a similar decline. Call it “Potency Seasonality”, and yes, we just coined that. 😉
+
+
+Let's repeat for the CBD chemistry, focusing on:
+
+- CBDA (Cannabidiolic acid – the precursor)
+
+- CBD (Cannabidiol – the neutral, active form)
+
+We'll:
+
+- Filter and prep the data
+
+- Reshape to long format
+
+- Apply 7-day rolling average
+
+- Plot smoothed trends side by side like we did for THC
+```{r, echo=FALSE}
+
+# Let's pull from lab_data_list giving a fresh start
+lab_cbd_filtered <- lab_data_list %>%
+  filter(inventory_type_sub_category == "Infused Mixes") %>%
+  mutate(month = as.Date(sale_date_month)) %>%
+  group_by(month) %>%
+  summarise(
+    avg_cbda = mean(potency_cbda_perc_avg, na.rm = TRUE),
+    avg_cbd  = mean(potency_cbd_perc_avg, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  filter(!(avg_cbda == 0 & avg_cbd == 0)) %>%
+  as_tsibble(index = month)
+
+# Reshape to long and smooth
+# Convert to long format
+cbd_long <- lab_cbd_filtered %>%
+  pivot_longer(cols = c(avg_cbda, avg_cbd), names_to = "cannabinoid", values_to = "percentage") %>%
+  as_tsibble(index = month, key = cannabinoid)
+
+# Rolling smoothing (7-day window)
+cbd_smoothed <- cbd_long %>%
+  group_by(cannabinoid) %>% 
+  mutate(
+    rolling_pct = slider::slide_dbl(percentage, mean, .before = 2, .after = 2, .complete = TRUE)
+  ) %>%
+  ungroup()
+
+# Plot the data
+ggplot(cbd_smoothed, aes(x = month, y = rolling_pct, color = cannabinoid)) +
+  geom_line(linewidth = 1.1, na.rm = TRUE) +
+  scale_y_continuous(labels = label_percent(scale = 1)) +
+  scale_color_manual(
+    values = c("avg_cbda" = "#66C2A5", "avg_cbd" = "#3288BD"),
+    labels = c("CBDA (acid form)", "CBD (active form)")
+  ) +
+  labs(
+    title = "🧪 Daily Averages of CBDA vs. CBD in Infused Mixes",
+    subtitle = "7-day smoothing. Decarboxylation in action for non-psychoactive cannabinoids.",
+    x = "Date",
+    y = "Average % Potency",
+    color = "Cannabinoid Form",
+    caption = "Source: WSLCB Lab Tests • Processed by YourWeedData.com"
+  ) +
+  theme_minimal(base_size = 8) +
+  theme(
+    plot.title = element_text(face = "bold"),
+    legend.position = "bottom",
+    legend.title = element_text(face = "bold")
+  )
+
+```
+
+What We’ve Accomplished:
+
+- Built precursor-product summaries (e.g., CBGA → THCA → THC → CBN)
+
+Modeled:
+
+- CBN degradation over time (💀 stale weed detector)
+
+- THCA vs THC trends (🌡️ decarb in action)
+
+- CBD transformation over time (🌱 calming chemistry)
+
+Introduced a slider and tidytext-style smoothing.
+
+Built a clean, repeatable pipeline for cannabinoid chemistry EDA.
+
+Created visuals with real-world use cases that are useful to our clients✅
+
+Session Information
+```{r}
+
+sessionInfo()
+
+```
+
