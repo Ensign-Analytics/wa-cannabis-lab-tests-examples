@@ -304,6 +304,7 @@ ggplot(thca_thc_smoothed, aes(x = month, y = rolling_pct, color = cannabinoid)) 
 ```
 
 Why Do THCA and THC Trend Downward Over Time?
+
 Here’s the story — and it’s got more twist than a joint on a windy day:
 
 Product shelf life: Over time, cannabis products sitting in labs, warehouses, or shelves may degrade or lose potency, especially THCA converting to other forms or degrading entirely.
