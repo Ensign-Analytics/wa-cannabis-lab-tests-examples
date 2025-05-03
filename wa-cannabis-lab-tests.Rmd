@@ -1,24 +1,24 @@
 ---
 title: "Rolling with the Molecules: Cannabis Chemistry in Motion"
-author: "Franklin Johnson"
-date: "2025-04-21"
+author: "Franklin Johnson via yourweeddata.com"
+#date: "2025-03-01"
 output: html_document
 ---
 
-```{r setup, include=TRUE, echo=FALSE}
+```{r setup, include=FALSE, echo=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 
 source("install_packages_if_missing.R")
 ```
 
-Packages for this pipeline were silently loaded.
+Packages for this pipeline were loaded using source("install_packages_if_missing.R")
 
-Now, just load the Data:
+Now, just load the data:
 ```{r load-data, cache=TRUE}
 
-#lab_data_list <- qs::qread("data/lab_data_list.qs")
-
-#glimpse(lab_data_list)
+lab_data <- read_csv("lab_data.csv", show_col_types = FALSE)
+  
+glimpse(lab_data)
 
 ```
 
@@ -26,10 +26,10 @@ Understanding WSLCB Lab Testing Requirements
 
 We’ll align our modeling around these relationships — ideally by plotting pathways by product, by category, or even over time.
 
-EDA - Top Subcategories by Record Count
+EDA - Top subcategories by record count
 ```{r}
 
-lab_data_list %>%
+lab_data %>%
   count(inventory_type_sub_category, sort = TRUE) %>%
   slice_head(n = 10) %>%
   ggplot(aes(x = reorder(inventory_type_sub_category, n), y = n)) +
@@ -47,7 +47,7 @@ lab_data_list %>%
 THC/CBD Distribution (Boxplot)
 ```{r include=FALSE}
 
-lab_data_list %>%
+lab_data %>%
   pivot_longer(
     cols = starts_with("potency_"),
     names_to = "compound",
@@ -100,7 +100,7 @@ biosynthesis_pathway %>%
 Pathway Building Logic
 ```{r}
 # Group by subcategory or product name to observe average transitions
-biosynthesis_summary <- lab_data_list %>%
+biosynthesis_summary <- lab_data %>%
   group_by(inventory_type_sub_category) %>%
   summarise(
     cbga = mean(potency_cbga_perc_avg, na.rm = TRUE),
@@ -119,7 +119,7 @@ kable(biosynthesis_summary)
 Focus pathway to Flower or Concentrate
 ```{r, warning=FALSE}
 
-lab_flower_conc <- lab_data_list %>%
+lab_flower_conc <- lab_data %>%
   filter(str_detect(inventory_type_sub_category, regex("flower|concentrate", ignore_case = TRUE)))
 
 precursor_product_summary <- lab_flower_conc %>%
@@ -203,7 +203,7 @@ Decarboxylation Chemistry: Δ9-THCA → Δ9-THC in Infused Mixes
 ```{r}
 
 # Filter for Infused Mixes
-infused_data <- lab_data_list %>%
+infused_data <- lab_data %>%
   filter(inventory_type_sub_category == "Infused Mixes") %>%
   mutate(month = floor_date(sale_date_month, "month"))
 
@@ -246,6 +246,7 @@ ggplot(infused_long, aes(x = month, y = percentage, color = cannabinoid)) +
 ```
 
 From Acid to Active: THCA to THC Trends in Infused Mixes (Monthly Averages)
+
 ```{r, echo=FALSE}
 
 thca_thc_ts_clean <- infused_long %>%
@@ -303,7 +304,7 @@ ggplot(thca_thc_smoothed, aes(x = month, y = rolling_pct, color = cannabinoid)) 
 ```
 
 Why Do THCA and THC Trend Downward Over Time?
-Here’s the story — and it’s got more twist than a joint on a windy day 🌬️💨:
+Here’s the story — and it’s got more twist than a joint on a windy day:
 
 Product shelf life: Over time, cannabis products sitting in labs, warehouses, or shelves may degrade or lose potency, especially THCA converting to other forms or degrading entirely.
 
@@ -335,8 +336,8 @@ We'll:
 - Plot smoothed trends side by side like we did for THC
 ```{r, echo=FALSE}
 
-# Let's pull from lab_data_list giving a fresh start
-lab_cbd_filtered <- lab_data_list %>%
+# Let's pull from lab_data giving a fresh start
+lab_cbd_filtered <- lab_data %>%
   filter(inventory_type_sub_category == "Infused Mixes") %>%
   mutate(month = as.Date(sale_date_month)) %>%
   group_by(month) %>%
